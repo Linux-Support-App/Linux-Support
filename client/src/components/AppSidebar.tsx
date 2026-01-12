@@ -1,5 +1,6 @@
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   Terminal,
   Cpu,
@@ -12,6 +13,11 @@ import {
   MessageCircleQuestion,
   BookOpen,
   PlusCircle,
+  LogIn,
+  LogOut,
+  UserPlus,
+  Shield,
+  User,
 } from "lucide-react";
 import {
   Sidebar,
@@ -26,6 +32,7 @@ import {
   SidebarFooter,
   SidebarSeparator,
 } from "@/components/ui/sidebar";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Category } from "@shared/schema";
@@ -48,10 +55,15 @@ const mainNavItems = [
 
 export function AppSidebar() {
   const [location] = useLocation();
+  const { user, logout, canManageUsers, isLoading: authLoading } = useAuth();
 
   const { data: categories, isLoading } = useQuery<Category[]>({
     queryKey: ["/api/categories"],
   });
+
+  const handleLogout = async () => {
+    await logout();
+  };
 
   return (
     <Sidebar className="border-r border-sidebar-border">
@@ -129,18 +141,95 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+
+        {canManageUsers && (
+          <>
+            <SidebarSeparator />
+            <SidebarGroup>
+              <SidebarGroupLabel className="text-sidebar-foreground/60">
+                Admin
+              </SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={location === "/admin"}
+                      data-testid="nav-admin"
+                    >
+                      <Link href="/admin">
+                        <Shield className="h-4 w-4" />
+                        <span>Admin Panel</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </>
+        )}
       </SidebarContent>
 
-      <SidebarFooter className="p-4">
-        <Link href="/ask">
-          <SidebarMenuButton
-            className="w-full justify-center bg-primary text-primary-foreground hover:bg-primary/90"
-            data-testid="button-ask-question"
-          >
-            <PlusCircle className="h-4 w-4" />
-            <span>Ask Question</span>
-          </SidebarMenuButton>
-        </Link>
+      <SidebarFooter className="p-4 space-y-3">
+        {authLoading ? (
+          <Skeleton className="h-10 w-full" />
+        ) : user ? (
+          <>
+            <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-sidebar-accent/50">
+              <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+                <User className="h-4 w-4 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">{user.displayName || user.username}</p>
+                <div className="flex items-center gap-1">
+                  <Badge variant="outline" className="text-xs px-1 py-0">
+                    {user.role}
+                  </Badge>
+                </div>
+              </div>
+            </div>
+            <Link href="/ask" className="block">
+              <SidebarMenuButton
+                className="w-full justify-center bg-primary text-primary-foreground hover:bg-primary/90"
+                data-testid="button-ask-question"
+              >
+                <PlusCircle className="h-4 w-4" />
+                <span>Ask Question</span>
+              </SidebarMenuButton>
+            </Link>
+            <Button
+              variant="ghost"
+              className="w-full justify-start gap-2"
+              onClick={handleLogout}
+              data-testid="button-logout"
+            >
+              <LogOut className="h-4 w-4" />
+              <span>Logout</span>
+            </Button>
+          </>
+        ) : (
+          <div className="space-y-2">
+            <Link href="/login" className="block">
+              <Button
+                variant="outline"
+                className="w-full justify-start gap-2"
+                data-testid="button-login"
+              >
+                <LogIn className="h-4 w-4" />
+                <span>Login</span>
+              </Button>
+            </Link>
+            <Link href="/register" className="block">
+              <Button
+                className="w-full justify-start gap-2"
+                data-testid="button-register"
+              >
+                <UserPlus className="h-4 w-4" />
+                <span>Register</span>
+              </Button>
+            </Link>
+          </div>
+        )}
       </SidebarFooter>
     </Sidebar>
   );

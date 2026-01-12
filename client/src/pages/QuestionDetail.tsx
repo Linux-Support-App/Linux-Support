@@ -174,7 +174,12 @@ export default function QuestionDetail() {
         ) : (
           <div className="space-y-4">
             {sortedAnswers.map((answer) => (
-              <AnswerCard key={answer.id} answer={answer} questionId={question.id} />
+              <AnswerCard 
+                key={answer.id} 
+                answer={answer} 
+                questionId={question.id}
+                questionAuthorId={question.userId}
+              />
             ))}
           </div>
         )}

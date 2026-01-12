@@ -1,18 +1,25 @@
 import { Link } from "wouter";
 import { formatDistanceToNow } from "date-fns";
-import { MessageCircle, Eye, User } from "lucide-react";
+import { MessageCircle, Eye, User, Pin, Trash2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { VoteButtons } from "@/components/VoteButtons";
 import { CategoryBadge } from "@/components/CategoryBadge";
+import { useAuth } from "@/contexts/AuthContext";
 import type { Question, Category } from "@shared/schema";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 interface QuestionCardProps {
   question: Question & { category?: Category };
 }
 
 export function QuestionCard({ question }: QuestionCardProps) {
+  const { canModerate } = useAuth();
+  const { toast } = useToast();
+
   const upvoteMutation = useMutation({
     mutationFn: () => apiRequest("POST", `/api/questions/${question.id}/vote`, { direction: "up" }),
     onSuccess: () => {
@@ -27,10 +34,35 @@ export function QuestionCard({ question }: QuestionCardProps) {
     },
   });
 
+  const pinMutation = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/questions/${question.id}/pin`),
+    onSuccess: () => {
+      queryClient.invalidateQueries();
+      toast({
+        title: question.isPinned ? "Question unpinned" : "Question pinned",
+        description: question.isPinned ? "The question has been unpinned." : "The question has been pinned to the top.",
+      });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => apiRequest("DELETE", `/api/questions/${question.id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries();
+      toast({
+        title: "Question deleted",
+        description: "The question has been removed.",
+      });
+    },
+  });
+
   const hasMedia = question.imageUrl || question.videoUrl || question.codeSnippet;
 
   return (
-    <Card className="hover-elevate" data-testid={`card-question-${question.id}`}>
+    <Card 
+      className={`hover-elevate ${question.isPinned ? "border-primary/50 bg-primary/5" : ""}`} 
+      data-testid={`card-question-${question.id}`}
+    >
       <CardContent className="p-0">
         <div className="flex">
           <div className="flex-shrink-0 p-4 border-r border-border">
@@ -44,17 +76,60 @@ export function QuestionCard({ question }: QuestionCardProps) {
 
           <div className="flex-1 p-4 min-w-0">
             <div className="flex items-start justify-between gap-4 flex-wrap">
-              <Link href={`/question/${question.id}`}>
-                <h3 
-                  className="text-lg font-semibold hover:text-primary transition-colors line-clamp-2"
-                  data-testid="text-question-title"
-                >
-                  {question.title}
-                </h3>
-              </Link>
-              {question.category && (
-                <CategoryBadge category={question.category} />
-              )}
+              <div className="flex items-center gap-2">
+                {question.isPinned && (
+                  <Badge variant="outline" className="gap-1 text-primary border-primary/50">
+                    <Pin className="h-3 w-3" />
+                    Pinned
+                  </Badge>
+                )}
+                <Link href={`/question/${question.id}`}>
+                  <h3 
+                    className="text-lg font-semibold hover:text-primary transition-colors line-clamp-2"
+                    data-testid="text-question-title"
+                  >
+                    {question.title}
+                  </h3>
+                </Link>
+              </div>
+              <div className="flex items-center gap-2">
+                {question.category && (
+                  <CategoryBadge category={question.category} />
+                )}
+                {canModerate && (
+                  <div className="flex items-center gap-1">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        pinMutation.mutate();
+                      }}
+                      disabled={pinMutation.isPending}
+                      title={question.isPinned ? "Unpin question" : "Pin question"}
+                      data-testid={`button-pin-${question.id}`}
+                    >
+                      <Pin className={`h-4 w-4 ${question.isPinned ? "text-primary" : ""}`} />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        if (confirm("Are you sure you want to delete this question?")) {
+                          deleteMutation.mutate();
+                        }
+                      }}
+                      disabled={deleteMutation.isPending}
+                      title="Delete question"
+                      className="text-destructive hover:text-destructive"
+                      data-testid={`button-delete-${question.id}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
+              </div>
             </div>
 
             <p className="mt-2 text-muted-foreground text-sm line-clamp-2">

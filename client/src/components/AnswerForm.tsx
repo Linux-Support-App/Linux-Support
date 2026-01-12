@@ -3,8 +3,9 @@ import { useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Send, Code, Image, Video, X } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Send, Code, Image, Video, X, LogIn } from "lucide-react";
+import { Link } from "wouter";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -26,6 +27,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useUpload } from "@/hooks/use-upload";
+import { useAuth } from "@/contexts/AuthContext";
 
 const answerSchema = z.object({
   content: z.string().min(10, "Answer must be at least 10 characters"),
@@ -53,6 +55,7 @@ const languages = [
 
 export function AnswerForm({ questionId }: AnswerFormProps) {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [showCode, setShowCode] = useState(false);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
@@ -67,6 +70,32 @@ export function AnswerForm({ questionId }: AnswerFormProps) {
       }
     },
   });
+
+  if (!user) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <LogIn className="h-5 w-5" />
+            Login to Answer
+          </CardTitle>
+          <CardDescription>
+            You need to be logged in to post an answer
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-4">
+            <Link href="/login">
+              <Button size="sm" data-testid="button-login">Login</Button>
+            </Link>
+            <Link href="/register">
+              <Button size="sm" variant="outline" data-testid="button-register">Register</Button>
+            </Link>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   const form = useForm<AnswerFormData>({
     resolver: zodResolver(answerSchema),

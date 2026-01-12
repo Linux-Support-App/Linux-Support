@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { AuthProvider } from "@/contexts/AuthContext";
 import { AppSidebar } from "@/components/AppSidebar";
 import { SearchBar } from "@/components/SearchBar";
 import Home from "@/pages/Home";
@@ -15,6 +16,9 @@ import AskQuestion from "@/pages/AskQuestion";
 import FAQ from "@/pages/FAQ";
 import CategoryPage from "@/pages/CategoryPage";
 import SearchResults from "@/pages/SearchResults";
+import Login from "@/pages/Login";
+import Register from "@/pages/Register";
+import AdminPanel from "@/pages/AdminPanel";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -27,6 +31,9 @@ function Router() {
       <Route path="/faq" component={FAQ} />
       <Route path="/category/:slug" component={CategoryPage} />
       <Route path="/search" component={SearchResults} />
+      <Route path="/login" component={Login} />
+      <Route path="/register" component={Register} />
+      <Route path="/admin" component={AdminPanel} />
       <Route component={NotFound} />
     </Switch>
   );
@@ -41,28 +48,30 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider defaultTheme="dark">
-        <TooltipProvider>
-          <SidebarProvider style={style as React.CSSProperties}>
-            <div className="flex h-screen w-full">
-              <AppSidebar />
-              <div className="flex flex-col flex-1 min-w-0">
-                <header className="sticky top-0 z-50 flex items-center justify-between gap-4 px-4 py-3 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-                  <div className="flex items-center gap-3">
-                    <SidebarTrigger data-testid="button-sidebar-toggle" />
-                    <SearchBar className="hidden sm:block w-64 lg:w-80" />
-                  </div>
-                  <ThemeToggle />
-                </header>
-                <main className="flex-1 overflow-auto">
-                  <div className="container max-w-6xl mx-auto p-4 md:p-6 lg:p-8">
-                    <Router />
-                  </div>
-                </main>
+        <AuthProvider>
+          <TooltipProvider>
+            <SidebarProvider style={style as React.CSSProperties}>
+              <div className="flex h-screen w-full">
+                <AppSidebar />
+                <div className="flex flex-col flex-1 min-w-0">
+                  <header className="sticky top-0 z-50 flex items-center justify-between gap-4 px-4 py-3 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+                    <div className="flex items-center gap-3">
+                      <SidebarTrigger data-testid="button-sidebar-toggle" />
+                      <SearchBar className="hidden sm:block w-64 lg:w-80" />
+                    </div>
+                    <ThemeToggle />
+                  </header>
+                  <main className="flex-1 overflow-auto">
+                    <div className="container max-w-6xl mx-auto p-4 md:p-6 lg:p-8">
+                      <Router />
+                    </div>
+                  </main>
+                </div>
               </div>
-            </div>
-          </SidebarProvider>
-          <Toaster />
-        </TooltipProvider>
+            </SidebarProvider>
+            <Toaster />
+          </TooltipProvider>
+        </AuthProvider>
       </ThemeProvider>
     </QueryClientProvider>
   );

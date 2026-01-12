@@ -4,7 +4,7 @@ import { useLocation, Link } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { ArrowLeft, Send, Code, Image, Video, X, HelpCircle } from "lucide-react";
+import { ArrowLeft, Send, Code, Image, Video, X, HelpCircle, LogIn } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -28,6 +28,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useUpload } from "@/hooks/use-upload";
+import { useAuth } from "@/contexts/AuthContext";
 import type { Category } from "@shared/schema";
 
 const questionSchema = z.object({
@@ -55,6 +56,7 @@ const languages = [
 export default function AskQuestion() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { user, isLoading: authLoading } = useAuth();
   const [showCode, setShowCode] = useState(false);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
@@ -62,6 +64,37 @@ export default function AskQuestion() {
   const { data: categories } = useQuery<Category[]>({
     queryKey: ["/api/categories"],
   });
+
+  if (!authLoading && !user) {
+    return (
+      <div className="max-w-2xl mx-auto">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <LogIn className="h-6 w-6" />
+              Login Required
+            </CardTitle>
+            <CardDescription>
+              You need to be logged in to ask a question
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-muted-foreground">
+              Please login or create an account to post questions and participate in the community.
+            </p>
+            <div className="flex gap-4">
+              <Link href="/login">
+                <Button data-testid="button-login">Login</Button>
+              </Link>
+              <Link href="/register">
+                <Button variant="outline" data-testid="button-register">Create Account</Button>
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   const { uploadFile, isUploading } = useUpload({
     onSuccess: (response) => {
