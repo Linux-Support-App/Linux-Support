@@ -1,11 +1,14 @@
 import {
   users,
+  sessions,
   categories,
   questions,
   answers,
   faqs,
   type User,
+  type SafeUser,
   type InsertUser,
+  type Session,
   type Category,
   type InsertCategory,
   type Question,
@@ -14,14 +17,23 @@ import {
   type InsertAnswer,
   type Faq,
   type InsertFaq,
+  type UserRole,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, asc, ilike, or, sql } from "drizzle-orm";
+import { eq, desc, asc, ilike, or, sql, and, gt } from "drizzle-orm";
+import bcrypt from "bcrypt";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  getAllUsers(): Promise<SafeUser[]>;
+  updateUserRole(id: string, role: UserRole): Promise<void>;
+  
+  createSession(userId: string): Promise<Session>;
+  getSession(id: string): Promise<(Session & { user: SafeUser }) | undefined>;
+  deleteSession(id: string): Promise<void>;
+  cleanExpiredSessions(): Promise<void>;
   
   getCategories(): Promise<Category[]>;
   getCategoryBySlug(slug: string): Promise<Category | undefined>;
@@ -29,20 +41,28 @@ export interface IStorage {
   
   getQuestions(options?: { categorySlug?: string; sort?: string; limit?: number }): Promise<(Question & { category: Category })[]>;
   getQuestionById(id: string): Promise<(Question & { category: Category; answers: Answer[] }) | undefined>;
-  createQuestion(question: InsertQuestion): Promise<Question>;
+  createQuestion(question: InsertQuestion & { userId?: string }): Promise<Question>;
+  updateQuestion(id: string, data: Partial<Pick<Question, 'title' | 'content' | 'isPinned'>>): Promise<void>;
+  deleteQuestion(id: string): Promise<void>;
   updateQuestionVotes(id: string, direction: "up" | "down"): Promise<void>;
   incrementQuestionViews(id: string): Promise<void>;
   searchQuestions(query: string): Promise<(Question & { category: Category })[]>;
   
   getAnswersByQuestionId(questionId: string): Promise<Answer[]>;
-  createAnswer(answer: InsertAnswer): Promise<Answer>;
+  createAnswer(answer: InsertAnswer & { userId?: string }): Promise<Answer>;
+  updateAnswer(id: string, data: Partial<Pick<Answer, 'content'>>): Promise<void>;
+  deleteAnswer(id: string): Promise<void>;
   updateAnswerVotes(id: string, direction: "up" | "down"): Promise<void>;
+  acceptAnswer(id: string, questionId: string): Promise<void>;
   
   getFaqs(): Promise<(Faq & { category: Category })[]>;
   createFaq(faq: InsertFaq): Promise<Faq>;
   
   getStats(): Promise<{ totalQuestions: number; totalAnswers: number; categories: number }>;
 }
+
+const SALT_ROUNDS = 12;
+const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
 
 export class DatabaseStorage implements IStorage {
   async getUser(id: string): Promise<User | undefined> {
@@ -56,8 +76,64 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const [user] = await db.insert(users).values(insertUser).returning();
+    const hashedPassword = await bcrypt.hash(insertUser.password, SALT_ROUNDS);
+    const [user] = await db.insert(users).values({
+      ...insertUser,
+      password: hashedPassword,
+      displayName: insertUser.displayName || insertUser.username,
+    }).returning();
     return user;
+  }
+
+  async getAllUsers(): Promise<SafeUser[]> {
+    const allUsers = await db.select({
+      id: users.id,
+      username: users.username,
+      displayName: users.displayName,
+      role: users.role,
+      createdAt: users.createdAt,
+    }).from(users).orderBy(desc(users.createdAt));
+    return allUsers;
+  }
+
+  async updateUserRole(id: string, role: UserRole): Promise<void> {
+    await db.update(users).set({ role }).where(eq(users.id, id));
+  }
+
+  async createSession(userId: string): Promise<Session> {
+    const expiresAt = new Date(Date.now() + SESSION_DURATION_MS);
+    const [session] = await db.insert(sessions).values({ userId, expiresAt }).returning();
+    return session;
+  }
+
+  async getSession(id: string): Promise<(Session & { user: SafeUser }) | undefined> {
+    const [result] = await db
+      .select({
+        id: sessions.id,
+        userId: sessions.userId,
+        expiresAt: sessions.expiresAt,
+        createdAt: sessions.createdAt,
+        user: {
+          id: users.id,
+          username: users.username,
+          displayName: users.displayName,
+          role: users.role,
+          createdAt: users.createdAt,
+        },
+      })
+      .from(sessions)
+      .innerJoin(users, eq(sessions.userId, users.id))
+      .where(and(eq(sessions.id, id), gt(sessions.expiresAt, new Date())));
+    
+    return result || undefined;
+  }
+
+  async deleteSession(id: string): Promise<void> {
+    await db.delete(sessions).where(eq(sessions.id, id));
+  }
+
+  async cleanExpiredSessions(): Promise<void> {
+    await db.delete(sessions).where(sql`${sessions.expiresAt} < now()`);
   }
 
   async getCategories(): Promise<Category[]> {
@@ -82,9 +158,11 @@ export class DatabaseStorage implements IStorage {
         content: questions.content,
         categoryId: questions.categoryId,
         authorName: questions.authorName,
+        userId: questions.userId,
         votes: questions.votes,
         viewCount: questions.viewCount,
         answerCount: questions.answerCount,
+        isPinned: questions.isPinned,
         createdAt: questions.createdAt,
         imageUrl: questions.imageUrl,
         videoUrl: questions.videoUrl,
@@ -102,16 +180,16 @@ export class DatabaseStorage implements IStorage {
     let orderedQuery;
     switch (options?.sort) {
       case "top":
-        orderedQuery = query.orderBy(desc(questions.votes));
+        orderedQuery = query.orderBy(desc(questions.isPinned), desc(questions.votes));
         break;
       case "active":
-        orderedQuery = query.orderBy(desc(questions.answerCount));
+        orderedQuery = query.orderBy(desc(questions.isPinned), desc(questions.answerCount));
         break;
       case "unanswered":
-        orderedQuery = query.where(eq(questions.answerCount, 0)).orderBy(desc(questions.createdAt)) as typeof query;
+        orderedQuery = query.where(eq(questions.answerCount, 0)).orderBy(desc(questions.isPinned), desc(questions.createdAt)) as typeof query;
         break;
       default:
-        orderedQuery = query.orderBy(desc(questions.createdAt));
+        orderedQuery = query.orderBy(desc(questions.isPinned), desc(questions.createdAt));
     }
 
     if (options?.limit) {
@@ -129,9 +207,11 @@ export class DatabaseStorage implements IStorage {
         content: questions.content,
         categoryId: questions.categoryId,
         authorName: questions.authorName,
+        userId: questions.userId,
         votes: questions.votes,
         viewCount: questions.viewCount,
         answerCount: questions.answerCount,
+        isPinned: questions.isPinned,
         createdAt: questions.createdAt,
         imageUrl: questions.imageUrl,
         videoUrl: questions.videoUrl,
@@ -149,14 +229,23 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(answers)
       .where(eq(answers.questionId, id))
-      .orderBy(desc(answers.votes));
+      .orderBy(desc(answers.isAccepted), desc(answers.votes));
 
     return { ...result, answers: questionAnswers };
   }
 
-  async createQuestion(question: InsertQuestion): Promise<Question> {
+  async createQuestion(question: InsertQuestion & { userId?: string }): Promise<Question> {
     const [created] = await db.insert(questions).values(question).returning();
     return created;
+  }
+
+  async updateQuestion(id: string, data: Partial<Pick<Question, 'title' | 'content' | 'isPinned'>>): Promise<void> {
+    await db.update(questions).set(data).where(eq(questions.id, id));
+  }
+
+  async deleteQuestion(id: string): Promise<void> {
+    await db.delete(answers).where(eq(answers.questionId, id));
+    await db.delete(questions).where(eq(questions.id, id));
   }
 
   async updateQuestionVotes(id: string, direction: "up" | "down"): Promise<void> {
@@ -183,9 +272,11 @@ export class DatabaseStorage implements IStorage {
         content: questions.content,
         categoryId: questions.categoryId,
         authorName: questions.authorName,
+        userId: questions.userId,
         votes: questions.votes,
         viewCount: questions.viewCount,
         answerCount: questions.answerCount,
+        isPinned: questions.isPinned,
         createdAt: questions.createdAt,
         imageUrl: questions.imageUrl,
         videoUrl: questions.videoUrl,
@@ -201,7 +292,7 @@ export class DatabaseStorage implements IStorage {
           ilike(questions.content, searchPattern)
         )
       )
-      .orderBy(desc(questions.votes));
+      .orderBy(desc(questions.isPinned), desc(questions.votes));
   }
 
   async getAnswersByQuestionId(questionId: string): Promise<Answer[]> {
@@ -209,10 +300,10 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(answers)
       .where(eq(answers.questionId, questionId))
-      .orderBy(desc(answers.votes));
+      .orderBy(desc(answers.isAccepted), desc(answers.votes));
   }
 
-  async createAnswer(answer: InsertAnswer): Promise<Answer> {
+  async createAnswer(answer: InsertAnswer & { userId?: string }): Promise<Answer> {
     const [created] = await db.insert(answers).values(answer).returning();
     await db
       .update(questions)
@@ -221,12 +312,32 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
+  async updateAnswer(id: string, data: Partial<Pick<Answer, 'content'>>): Promise<void> {
+    await db.update(answers).set(data).where(eq(answers.id, id));
+  }
+
+  async deleteAnswer(id: string): Promise<void> {
+    const [answer] = await db.select().from(answers).where(eq(answers.id, id));
+    if (answer) {
+      await db.delete(answers).where(eq(answers.id, id));
+      await db
+        .update(questions)
+        .set({ answerCount: sql`${questions.answerCount} - 1` })
+        .where(eq(questions.id, answer.questionId));
+    }
+  }
+
   async updateAnswerVotes(id: string, direction: "up" | "down"): Promise<void> {
     const increment = direction === "up" ? 1 : -1;
     await db
       .update(answers)
       .set({ votes: sql`${answers.votes} + ${increment}` })
       .where(eq(answers.id, id));
+  }
+
+  async acceptAnswer(id: string, questionId: string): Promise<void> {
+    await db.update(answers).set({ isAccepted: false }).where(eq(answers.questionId, questionId));
+    await db.update(answers).set({ isAccepted: true }).where(eq(answers.id, id));
   }
 
   async getFaqs(): Promise<(Faq & { category: Category })[]> {
@@ -261,6 +372,10 @@ export class DatabaseStorage implements IStorage {
       totalAnswers: Number(answersCount?.count || 0),
       categories: Number(categoriesCount?.count || 0),
     };
+  }
+
+  async verifyPassword(user: User, password: string): Promise<boolean> {
+    return bcrypt.compare(password, user.password);
   }
 }
 

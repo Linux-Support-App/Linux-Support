@@ -1,15 +1,205 @@
-import type { Express } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertQuestionSchema, insertAnswerSchema, insertCategorySchema, insertFaqSchema } from "@shared/schema";
+import { 
+  insertQuestionSchema, 
+  insertAnswerSchema, 
+  insertCategorySchema, 
+  insertFaqSchema,
+  insertUserSchema,
+  loginSchema,
+  updateUserRoleSchema,
+  type SafeUser,
+  type UserRole 
+} from "@shared/schema";
 import { z } from "zod";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
+
+declare global {
+  namespace Express {
+    interface Request {
+      user?: SafeUser;
+      sessionId?: string;
+    }
+  }
+}
+
+const SESSION_COOKIE = "session_id";
+
+async function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const sessionId = req.cookies?.[SESSION_COOKIE];
+  if (sessionId) {
+    const session = await storage.getSession(sessionId);
+    if (session) {
+      req.user = session.user;
+      req.sessionId = sessionId;
+    }
+  }
+  next();
+}
+
+function requireAuth(req: Request, res: Response, next: NextFunction) {
+  if (!req.user) {
+    return res.status(401).json({ error: "Authentication required" });
+  }
+  next();
+}
+
+function requireRole(...roles: UserRole[]) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    if (!roles.includes(req.user.role)) {
+      return res.status(403).json({ error: "Insufficient permissions" });
+    }
+    next();
+  };
+}
+
+function canModerate(user: SafeUser | undefined): boolean {
+  if (!user) return false;
+  return ["owner", "admin", "moderator"].includes(user.role);
+}
+
+function canManageUsers(user: SafeUser | undefined): boolean {
+  if (!user) return false;
+  return ["owner", "admin"].includes(user.role);
+}
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  app.use(authMiddleware);
+  
   registerObjectStorageRoutes(app);
+
+  app.post("/api/auth/register", async (req, res) => {
+    try {
+      const validatedData = insertUserSchema.parse(req.body);
+      
+      const existingUser = await storage.getUserByUsername(validatedData.username);
+      if (existingUser) {
+        return res.status(400).json({ error: "Username already taken" });
+      }
+      
+      const user = await storage.createUser(validatedData);
+      const session = await storage.createSession(user.id);
+      
+      res.cookie(SESSION_COOKIE, session.id, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      });
+      
+      const { password: _, ...safeUser } = user;
+      res.status(201).json(safeUser);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid data", details: error.errors });
+      }
+      console.error("Error registering user:", error);
+      res.status(500).json({ error: "Failed to register user" });
+    }
+  });
+
+  app.post("/api/auth/login", async (req, res) => {
+    try {
+      const { username, password } = loginSchema.parse(req.body);
+      
+      const user = await storage.getUserByUsername(username);
+      if (!user) {
+        return res.status(401).json({ error: "Invalid username or password" });
+      }
+      
+      const validPassword = await storage.verifyPassword(user, password);
+      if (!validPassword) {
+        return res.status(401).json({ error: "Invalid username or password" });
+      }
+      
+      const session = await storage.createSession(user.id);
+      
+      res.cookie(SESSION_COOKIE, session.id, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      });
+      
+      const { password: _, ...safeUser } = user;
+      res.json(safeUser);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid data", details: error.errors });
+      }
+      console.error("Error logging in:", error);
+      res.status(500).json({ error: "Failed to login" });
+    }
+  });
+
+  app.post("/api/auth/logout", async (req, res) => {
+    try {
+      if (req.sessionId) {
+        await storage.deleteSession(req.sessionId);
+      }
+      res.clearCookie(SESSION_COOKIE);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error logging out:", error);
+      res.status(500).json({ error: "Failed to logout" });
+    }
+  });
+
+  app.get("/api/auth/me", async (req, res) => {
+    if (!req.user) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    res.json(req.user);
+  });
+
+  app.get("/api/admin/users", requireRole("owner", "admin"), async (req, res) => {
+    try {
+      const users = await storage.getAllUsers();
+      res.json(users);
+    } catch (error) {
+      console.error("Error fetching users:", error);
+      res.status(500).json({ error: "Failed to fetch users" });
+    }
+  });
+
+  app.patch("/api/admin/users/:id/role", requireRole("owner", "admin"), async (req, res) => {
+    try {
+      const { role } = updateUserRoleSchema.parse(req.body);
+      const targetUser = await storage.getUser(req.params.id);
+      
+      if (!targetUser) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      
+      if (targetUser.role === "owner") {
+        return res.status(403).json({ error: "Cannot change owner role" });
+      }
+      
+      if (role === "admin" && req.user?.role !== "owner") {
+        return res.status(403).json({ error: "Only owner can promote to admin" });
+      }
+      
+      if (targetUser.role === "admin" && req.user?.role !== "owner") {
+        return res.status(403).json({ error: "Only owner can demote admins" });
+      }
+      
+      await storage.updateUserRole(req.params.id, role);
+      res.json({ success: true });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid data", details: error.errors });
+      }
+      console.error("Error updating user role:", error);
+      res.status(500).json({ error: "Failed to update user role" });
+    }
+  });
 
   app.get("/api/categories", async (req, res) => {
     try {
@@ -77,10 +267,14 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/questions", async (req, res) => {
+  app.post("/api/questions", requireAuth, async (req, res) => {
     try {
       const validatedData = insertQuestionSchema.parse(req.body);
-      const question = await storage.createQuestion(validatedData);
+      const question = await storage.createQuestion({
+        ...validatedData,
+        userId: req.user!.id,
+        authorName: req.user!.displayName || req.user!.username,
+      });
       res.status(201).json(question);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -88,6 +282,41 @@ export async function registerRoutes(
       }
       console.error("Error creating question:", error);
       res.status(500).json({ error: "Failed to create question" });
+    }
+  });
+
+  app.patch("/api/questions/:id", requireRole("owner", "admin", "moderator"), async (req, res) => {
+    try {
+      const { title, content, isPinned } = req.body;
+      await storage.updateQuestion(req.params.id, { title, content, isPinned });
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error updating question:", error);
+      res.status(500).json({ error: "Failed to update question" });
+    }
+  });
+
+  app.delete("/api/questions/:id", requireRole("owner", "admin", "moderator"), async (req, res) => {
+    try {
+      await storage.deleteQuestion(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting question:", error);
+      res.status(500).json({ error: "Failed to delete question" });
+    }
+  });
+
+  app.post("/api/questions/:id/pin", requireRole("owner", "admin", "moderator"), async (req, res) => {
+    try {
+      const question = await storage.getQuestionById(req.params.id);
+      if (!question) {
+        return res.status(404).json({ error: "Question not found" });
+      }
+      await storage.updateQuestion(req.params.id, { isPinned: !question.isPinned });
+      res.json({ success: true, isPinned: !question.isPinned });
+    } catch (error) {
+      console.error("Error pinning question:", error);
+      res.status(500).json({ error: "Failed to pin question" });
     }
   });
 
@@ -105,13 +334,17 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/questions/:id/answers", async (req, res) => {
+  app.post("/api/questions/:id/answers", requireAuth, async (req, res) => {
     try {
       const validatedData = insertAnswerSchema.parse({
         ...req.body,
         questionId: req.params.id,
       });
-      const answer = await storage.createAnswer(validatedData);
+      const answer = await storage.createAnswer({
+        ...validatedData,
+        userId: req.user!.id,
+        authorName: req.user!.displayName || req.user!.username,
+      });
       res.status(201).json(answer);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -119,6 +352,48 @@ export async function registerRoutes(
       }
       console.error("Error creating answer:", error);
       res.status(500).json({ error: "Failed to create answer" });
+    }
+  });
+
+  app.patch("/api/answers/:id", requireRole("owner", "admin", "moderator"), async (req, res) => {
+    try {
+      const { content } = req.body;
+      await storage.updateAnswer(req.params.id, { content });
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error updating answer:", error);
+      res.status(500).json({ error: "Failed to update answer" });
+    }
+  });
+
+  app.delete("/api/answers/:id", requireRole("owner", "admin", "moderator"), async (req, res) => {
+    try {
+      await storage.deleteAnswer(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting answer:", error);
+      res.status(500).json({ error: "Failed to delete answer" });
+    }
+  });
+
+  app.post("/api/answers/:id/accept", requireAuth, async (req, res) => {
+    try {
+      const { questionId } = req.body;
+      const question = await storage.getQuestionById(questionId);
+      
+      if (!question) {
+        return res.status(404).json({ error: "Question not found" });
+      }
+      
+      if (question.userId !== req.user!.id && !canModerate(req.user)) {
+        return res.status(403).json({ error: "Only the question author can accept answers" });
+      }
+      
+      await storage.acceptAnswer(req.params.id, questionId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error accepting answer:", error);
+      res.status(500).json({ error: "Failed to accept answer" });
     }
   });
 
