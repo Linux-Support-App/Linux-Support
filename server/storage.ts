@@ -62,7 +62,7 @@ export interface IStorage {
   getFaqs(): Promise<(Faq & { category: Category })[]>;
   createFaq(faq: InsertFaq): Promise<Faq>;
   
-  getStats(): Promise<{ totalQuestions: number; totalAnswers: number; categories: number }>;
+  getStats(): Promise<{ totalQuestions: number; totalAnswers: number; totalUsers: number }>;
 }
 
 const SALT_ROUNDS = 12;
@@ -370,15 +370,15 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async getStats(): Promise<{ totalQuestions: number; totalAnswers: number; categories: number }> {
+  async getStats(): Promise<{ totalQuestions: number; totalAnswers: number; totalUsers: number }> {
     const [questionsCount] = await db.select({ count: sql<number>`count(*)` }).from(questions);
     const [answersCount] = await db.select({ count: sql<number>`count(*)` }).from(answers);
-    const [categoriesCount] = await db.select({ count: sql<number>`count(*)` }).from(categories);
+    const [usersCount] = await db.select({ count: sql<number>`count(*)` }).from(users);
 
     return {
       totalQuestions: Number(questionsCount?.count || 0),
       totalAnswers: Number(answersCount?.count || 0),
-      categories: Number(categoriesCount?.count || 0),
+      totalUsers: Number(usersCount?.count || 0),
     };
   }
 

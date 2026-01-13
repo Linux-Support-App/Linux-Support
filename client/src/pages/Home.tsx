@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { TrendingUp, Clock, MessageCircle, ArrowRight } from "lucide-react";
+import { TrendingUp, Clock, MessageCircle, ArrowRight, Users } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -17,7 +17,7 @@ export default function Home() {
     queryKey: ["/api/questions?limit=5&sort=top"],
   });
 
-  const { data: stats } = useQuery<{ totalQuestions: number; totalAnswers: number; categories: number }>({
+  const { data: stats } = useQuery<{ totalQuestions: number; totalAnswers: number; totalUsers: number }>({
     queryKey: ["/api/stats"],
   });
 
@@ -63,11 +63,11 @@ export default function Home() {
         <Card className="hover-elevate">
           <CardContent className="p-6 flex items-center gap-4">
             <div className="p-3 rounded-lg bg-primary/10">
-              <Clock className="h-6 w-6 text-primary" />
+              <Users className="h-6 w-6 text-primary" />
             </div>
             <div>
-              <p className="text-2xl font-bold">{stats?.categories ?? "-"}</p>
-              <p className="text-sm text-muted-foreground">Categories</p>
+              <p className="text-2xl font-bold">{stats?.totalUsers ?? "-"}</p>
+              <p className="text-sm text-muted-foreground">Community Members</p>
             </div>
           </CardContent>
         </Card>
