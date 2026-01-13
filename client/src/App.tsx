@@ -19,6 +19,9 @@ import SearchResults from "@/pages/SearchResults";
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
 import AdminPanel from "@/pages/AdminPanel";
+import UserProfile from "@/pages/UserProfile";
+import ForgotPassword from "@/pages/ForgotPassword";
+import ResetPassword from "@/pages/ResetPassword";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -34,6 +37,9 @@ function Router() {
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
       <Route path="/admin" component={AdminPanel} />
+      <Route path="/users/:id" component={UserProfile} />
+      <Route path="/forgot-password" component={ForgotPassword} />
+      <Route path="/reset-password" component={ResetPassword} />
       <Route component={NotFound} />
     </Switch>
   );

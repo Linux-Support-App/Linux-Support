@@ -138,10 +138,12 @@ export function QuestionCard({ question }: QuestionCardProps) {
             </p>
 
             <div className="mt-3 flex items-center gap-4 flex-wrap text-sm text-muted-foreground">
-              <div className="flex items-center gap-1.5">
-                <User className="h-3.5 w-3.5" />
-                <span data-testid="text-author">{question.authorName}</span>
-              </div>
+              <Link href={question.userId ? `/users/${question.userId}` : "#"}>
+                <div className="flex items-center gap-1.5 hover:text-primary transition-colors">
+                  <User className="h-3.5 w-3.5" />
+                  <span data-testid="text-author">{question.authorName}</span>
+                </div>
+              </Link>
               <div className="flex items-center gap-1.5">
                 <MessageCircle className="h-3.5 w-3.5" />
                 <span>{question.answerCount} answers</span>

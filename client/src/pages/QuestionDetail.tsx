@@ -127,10 +127,12 @@ export default function QuestionDetail() {
 
               <div className="flex items-center justify-between flex-wrap gap-4">
                 <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                  <div className="flex items-center gap-1.5">
-                    <User className="h-4 w-4" />
-                    <span data-testid="text-author">{question.authorName}</span>
-                  </div>
+                  <Link href={question.userId ? `/users/${question.userId}` : "#"}>
+                    <div className="flex items-center gap-1.5 hover:text-primary transition-colors">
+                      <User className="h-4 w-4" />
+                      <span data-testid="text-author">{question.authorName}</span>
+                    </div>
+                  </Link>
                   <div className="flex items-center gap-1.5">
                     <Eye className="h-4 w-4" />
                     <span>{question.viewCount} views</span>

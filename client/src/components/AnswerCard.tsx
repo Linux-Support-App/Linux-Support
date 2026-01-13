@@ -1,3 +1,4 @@
+import { Link } from "wouter";
 import { formatDistanceToNow } from "date-fns";
 import { User, Check, Trash2, CheckCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -138,10 +139,12 @@ export function AnswerCard({ answer, questionId, questionAuthorId }: AnswerCardP
             <MediaPreview imageUrl={answer.imageUrl} videoUrl={answer.videoUrl} />
 
             <div className="mt-4 pt-4 border-t border-border flex items-center gap-4 text-sm text-muted-foreground">
-              <div className="flex items-center gap-1.5">
-                <User className="h-3.5 w-3.5" />
-                <span data-testid="text-answer-author">{answer.authorName}</span>
-              </div>
+              <Link href={answer.userId ? `/users/${answer.userId}` : "#"}>
+                <div className="flex items-center gap-1.5 hover:text-primary transition-colors">
+                  <User className="h-3.5 w-3.5" />
+                  <span data-testid="text-answer-author">{answer.authorName}</span>
+                </div>
+              </Link>
               <span className="text-xs">
                 answered {formatDistanceToNow(new Date(answer.createdAt), { addSuffix: true })}
               </span>
