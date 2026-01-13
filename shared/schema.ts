@@ -8,9 +8,20 @@ export const userRoleEnum = pgEnum("user_role", ["owner", "admin", "moderator", 
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   username: text("username").notNull().unique(),
+  email: text("email"),
   password: text("password").notNull(),
   displayName: text("display_name"),
   role: userRoleEnum("role").notNull().default("member"),
+  karma: integer("karma").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const passwordResetTokens = pgTable("password_reset_tokens", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  token: text("token").notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -165,11 +176,66 @@ export const updateUserRoleSchema = z.object({
   role: z.enum(["admin", "moderator", "member"]),
 });
 
+export const requestPasswordResetSchema = z.object({
+  username: z.string().min(1),
+});
+
+export const resetPasswordSchema = z.object({
+  token: z.string().min(1),
+  newPassword: z.string().min(6),
+});
+
 export type UserRole = "owner" | "admin" | "moderator" | "member";
+
+export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
+
+export const KARMA_LEVELS = [
+  { level: 0, minKarma: 0, title: null },
+  { level: 1, minKarma: 10, title: null },
+  { level: 2, minKarma: 25, title: null },
+  { level: 3, minKarma: 50, title: "Apprentice" },
+  { level: 4, minKarma: 100, title: "Apprentice" },
+  { level: 5, minKarma: 200, title: "Contributor" },
+  { level: 6, minKarma: 350, title: "Contributor" },
+  { level: 7, minKarma: 500, title: "Scholar" },
+  { level: 8, minKarma: 750, title: "Scholar" },
+  { level: 9, minKarma: 1000, title: "Sage" },
+  { level: 10, minKarma: 1500, title: "Sage" },
+  { level: 11, minKarma: 2500, title: "Professor" },
+  { level: 12, minKarma: 5000, title: "Professor" },
+] as const;
+
+export function getKarmaLevel(karma: number): { level: number; title: string | null; nextLevelKarma: number | null } {
+  let currentLevel: { level: number; minKarma: number; title: string | null } = KARMA_LEVELS[0];
+  for (const level of KARMA_LEVELS) {
+    if (karma >= level.minKarma) {
+      currentLevel = level;
+    } else {
+      break;
+    }
+  }
+  const nextLevel = KARMA_LEVELS.find(l => l.level === currentLevel.level + 1);
+  return {
+    level: currentLevel.level,
+    title: currentLevel.title,
+    nextLevelKarma: nextLevel ? nextLevel.minKarma : null,
+  };
+}
+
+export const KARMA_REWARDS = {
+  ASK_QUESTION: 2,
+  POST_ANSWER: 5,
+  ANSWER_UPVOTED: 10,
+  QUESTION_UPVOTED: 5,
+  ANSWER_ACCEPTED: 25,
+  ANSWER_DOWNVOTED: -2,
+  QUESTION_DOWNVOTED: -1,
+} as const;
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 export type SafeUser = Omit<User, "password">;
+export type UserWithKarmaInfo = SafeUser & { level: number; title: string | null; nextLevelKarma: number | null };
 
 export type Session = typeof sessions.$inferSelect;
 

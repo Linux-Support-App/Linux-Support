@@ -1,6 +1,7 @@
 import {
   users,
   sessions,
+  passwordResetTokens,
   categories,
   questions,
   answers,
@@ -9,6 +10,7 @@ import {
   type SafeUser,
   type InsertUser,
   type Session,
+  type PasswordResetToken,
   type Category,
   type InsertCategory,
   type Question,
@@ -18,7 +20,9 @@ import {
   type Faq,
   type InsertFaq,
   type UserRole,
+  KARMA_REWARDS,
 } from "@shared/schema";
+import crypto from "crypto";
 import { db } from "./db";
 import { eq, desc, asc, ilike, or, sql, and, gt } from "drizzle-orm";
 import bcrypt from "bcrypt";
@@ -89,8 +93,10 @@ export class DatabaseStorage implements IStorage {
     const allUsers = await db.select({
       id: users.id,
       username: users.username,
+      email: users.email,
       displayName: users.displayName,
       role: users.role,
+      karma: users.karma,
       createdAt: users.createdAt,
     }).from(users).orderBy(desc(users.createdAt));
     return allUsers;
@@ -116,8 +122,10 @@ export class DatabaseStorage implements IStorage {
         user: {
           id: users.id,
           username: users.username,
+          email: users.email,
           displayName: users.displayName,
           role: users.role,
+          karma: users.karma,
           createdAt: users.createdAt,
         },
       })
@@ -376,6 +384,116 @@ export class DatabaseStorage implements IStorage {
 
   async verifyPassword(user: User, password: string): Promise<boolean> {
     return bcrypt.compare(password, user.password);
+  }
+
+  async createPasswordResetToken(userId: string): Promise<string> {
+    const token = crypto.randomBytes(32).toString("hex");
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+    await db.insert(passwordResetTokens).values({ userId, token, expiresAt });
+    return token;
+  }
+
+  async getPasswordResetToken(token: string): Promise<(PasswordResetToken & { user: User }) | undefined> {
+    const [result] = await db
+      .select({
+        id: passwordResetTokens.id,
+        userId: passwordResetTokens.userId,
+        token: passwordResetTokens.token,
+        expiresAt: passwordResetTokens.expiresAt,
+        usedAt: passwordResetTokens.usedAt,
+        createdAt: passwordResetTokens.createdAt,
+        user: users,
+      })
+      .from(passwordResetTokens)
+      .innerJoin(users, eq(passwordResetTokens.userId, users.id))
+      .where(and(
+        eq(passwordResetTokens.token, token),
+        gt(passwordResetTokens.expiresAt, new Date()),
+        sql`${passwordResetTokens.usedAt} IS NULL`
+      ));
+    return result || undefined;
+  }
+
+  async usePasswordResetToken(token: string, newPassword: string): Promise<void> {
+    const tokenData = await this.getPasswordResetToken(token);
+    if (!tokenData) throw new Error("Invalid or expired token");
+    
+    const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
+    await db.update(users).set({ password: hashedPassword }).where(eq(users.id, tokenData.userId));
+    await db.update(passwordResetTokens).set({ usedAt: new Date() }).where(eq(passwordResetTokens.token, token));
+  }
+
+  async addKarma(userId: string, amount: number): Promise<void> {
+    await db
+      .update(users)
+      .set({ karma: sql`GREATEST(0, ${users.karma} + ${amount})` })
+      .where(eq(users.id, userId));
+  }
+
+  async getUserProfile(userId: string): Promise<SafeUser | undefined> {
+    const [user] = await db.select({
+      id: users.id,
+      username: users.username,
+      email: users.email,
+      displayName: users.displayName,
+      role: users.role,
+      karma: users.karma,
+      createdAt: users.createdAt,
+    }).from(users).where(eq(users.id, userId));
+    return user || undefined;
+  }
+
+  async getUserQuestions(userId: string): Promise<(Question & { category: Category })[]> {
+    return db
+      .select({
+        id: questions.id,
+        title: questions.title,
+        content: questions.content,
+        categoryId: questions.categoryId,
+        authorName: questions.authorName,
+        userId: questions.userId,
+        votes: questions.votes,
+        viewCount: questions.viewCount,
+        answerCount: questions.answerCount,
+        isPinned: questions.isPinned,
+        createdAt: questions.createdAt,
+        imageUrl: questions.imageUrl,
+        videoUrl: questions.videoUrl,
+        codeSnippet: questions.codeSnippet,
+        codeLanguage: questions.codeLanguage,
+        category: categories,
+      })
+      .from(questions)
+      .innerJoin(categories, eq(questions.categoryId, categories.id))
+      .where(eq(questions.userId, userId))
+      .orderBy(desc(questions.createdAt));
+  }
+
+  async getUserAnswers(userId: string): Promise<(Answer & { question: Question })[]> {
+    return db
+      .select({
+        id: answers.id,
+        questionId: answers.questionId,
+        content: answers.content,
+        authorName: answers.authorName,
+        userId: answers.userId,
+        votes: answers.votes,
+        isAccepted: answers.isAccepted,
+        createdAt: answers.createdAt,
+        imageUrl: answers.imageUrl,
+        videoUrl: answers.videoUrl,
+        codeSnippet: answers.codeSnippet,
+        codeLanguage: answers.codeLanguage,
+        question: questions,
+      })
+      .from(answers)
+      .innerJoin(questions, eq(answers.questionId, questions.id))
+      .where(eq(answers.userId, userId))
+      .orderBy(desc(answers.createdAt));
+  }
+
+  async updateUserEmail(userId: string, email: string): Promise<void> {
+    await db.update(users).set({ email }).where(eq(users.id, userId));
   }
 }
 

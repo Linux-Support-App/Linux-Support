@@ -9,6 +9,10 @@ import {
   insertUserSchema,
   loginSchema,
   updateUserRoleSchema,
+  requestPasswordResetSchema,
+  resetPasswordSchema,
+  getKarmaLevel,
+  KARMA_REWARDS,
   type SafeUser,
   type UserRole 
 } from "@shared/schema";
@@ -159,6 +163,89 @@ export async function registerRoutes(
     res.json(req.user);
   });
 
+  app.post("/api/auth/request-reset", async (req, res) => {
+    try {
+      const { username } = requestPasswordResetSchema.parse(req.body);
+      const user = await storage.getUserByUsername(username);
+      
+      if (!user) {
+        return res.json({ success: true, message: "If the account exists, a reset link will be generated" });
+      }
+      
+      const token = await storage.createPasswordResetToken(user.id);
+      
+      res.json({ 
+        success: true, 
+        message: "Password reset token generated",
+        token,
+        resetUrl: `/reset-password?token=${token}`
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid data", details: error.errors });
+      }
+      console.error("Error requesting password reset:", error);
+      res.status(500).json({ error: "Failed to request password reset" });
+    }
+  });
+
+  app.post("/api/auth/reset-password", async (req, res) => {
+    try {
+      const { token, newPassword } = resetPasswordSchema.parse(req.body);
+      await storage.usePasswordResetToken(token, newPassword);
+      res.json({ success: true, message: "Password reset successfully" });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid data", details: error.errors });
+      }
+      if (error instanceof Error && error.message === "Invalid or expired token") {
+        return res.status(400).json({ error: error.message });
+      }
+      console.error("Error resetting password:", error);
+      res.status(500).json({ error: "Failed to reset password" });
+    }
+  });
+
+  app.get("/api/users/:id", async (req, res) => {
+    try {
+      const user = await storage.getUserProfile(req.params.id);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      const karmaInfo = getKarmaLevel(user.karma);
+      const questions = await storage.getUserQuestions(req.params.id);
+      const answers = await storage.getUserAnswers(req.params.id);
+      
+      res.json({
+        ...user,
+        level: karmaInfo.level,
+        title: karmaInfo.title,
+        nextLevelKarma: karmaInfo.nextLevelKarma,
+        questionsCount: questions.length,
+        answersCount: answers.length,
+        questions: questions.slice(0, 10),
+        answers: answers.slice(0, 10),
+      });
+    } catch (error) {
+      console.error("Error fetching user profile:", error);
+      res.status(500).json({ error: "Failed to fetch user profile" });
+    }
+  });
+
+  app.patch("/api/users/me/email", requireAuth, async (req, res) => {
+    try {
+      const { email } = req.body;
+      if (!email || typeof email !== "string") {
+        return res.status(400).json({ error: "Email is required" });
+      }
+      await storage.updateUserEmail(req.user!.id, email);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error updating email:", error);
+      res.status(500).json({ error: "Failed to update email" });
+    }
+  });
+
   app.get("/api/admin/users", requireRole("owner", "admin"), async (req, res) => {
     try {
       const users = await storage.getAllUsers();
@@ -275,6 +362,7 @@ export async function registerRoutes(
         userId: req.user!.id,
         authorName: req.user!.displayName || req.user!.username,
       });
+      await storage.addKarma(req.user!.id, KARMA_REWARDS.ASK_QUESTION);
       res.status(201).json(question);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -326,7 +414,12 @@ export async function registerRoutes(
       if (direction !== "up" && direction !== "down") {
         return res.status(400).json({ error: "Invalid vote direction" });
       }
+      const question = await storage.getQuestionById(req.params.id);
       await storage.updateQuestionVotes(req.params.id, direction);
+      if (question?.userId) {
+        const karmaChange = direction === "up" ? KARMA_REWARDS.QUESTION_UPVOTED : KARMA_REWARDS.QUESTION_DOWNVOTED;
+        await storage.addKarma(question.userId, karmaChange);
+      }
       res.json({ success: true });
     } catch (error) {
       console.error("Error updating vote:", error);
@@ -345,6 +438,7 @@ export async function registerRoutes(
         userId: req.user!.id,
         authorName: req.user!.displayName || req.user!.username,
       });
+      await storage.addKarma(req.user!.id, KARMA_REWARDS.POST_ANSWER);
       res.status(201).json(answer);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -389,7 +483,15 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Only the question author can accept answers" });
       }
       
+      const answers = await storage.getAnswersByQuestionId(questionId);
+      const answer = answers.find(a => a.id === req.params.id);
+      
       await storage.acceptAnswer(req.params.id, questionId);
+      
+      if (answer?.userId) {
+        await storage.addKarma(answer.userId, KARMA_REWARDS.ANSWER_ACCEPTED);
+      }
+      
       res.json({ success: true });
     } catch (error) {
       console.error("Error accepting answer:", error);
@@ -403,7 +505,16 @@ export async function registerRoutes(
       if (direction !== "up" && direction !== "down") {
         return res.status(400).json({ error: "Invalid vote direction" });
       }
+      const answers = await storage.getAnswersByQuestionId(req.body.questionId || "");
+      const answer = answers.find(a => a.id === req.params.id);
+      
       await storage.updateAnswerVotes(req.params.id, direction);
+      
+      if (answer?.userId) {
+        const karmaChange = direction === "up" ? KARMA_REWARDS.ANSWER_UPVOTED : KARMA_REWARDS.ANSWER_DOWNVOTED;
+        await storage.addKarma(answer.userId, karmaChange);
+      }
+      
       res.json({ success: true });
     } catch (error) {
       console.error("Error updating vote:", error);
