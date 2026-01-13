@@ -36,6 +36,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Category } from "@shared/schema";
+import { getKarmaLevel } from "@shared/schema";
 
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   terminal: Terminal,
@@ -175,19 +176,30 @@ export function AppSidebar() {
           <Skeleton className="h-10 w-full" />
         ) : user ? (
           <>
-            <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-sidebar-accent/50">
-              <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-                <User className="h-4 w-4 text-primary" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{user.displayName || user.username}</p>
-                <div className="flex items-center gap-1">
-                  <Badge variant="outline" className="text-xs px-1 py-0">
-                    {user.role}
-                  </Badge>
+            <Link href={`/users/${user.id}`}>
+              <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-sidebar-accent/50 hover-elevate cursor-pointer" data-testid="sidebar-user-profile">
+                <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+                  <User className="h-4 w-4 text-primary" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{user.displayName || user.username}</p>
+                  <div className="flex items-center gap-1.5">
+                    {getKarmaLevel(user.karma).title ? (
+                      <Badge variant="secondary" className="text-xs px-1.5 py-0">
+                        {getKarmaLevel(user.karma).title}
+                      </Badge>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">Level {getKarmaLevel(user.karma).level}</span>
+                    )}
+                    {user.role !== "member" && (
+                      <Badge variant="outline" className="text-xs px-1 py-0">
+                        {user.role}
+                      </Badge>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
+            </Link>
             <Link href="/ask" className="block">
               <SidebarMenuButton
                 className="w-full justify-center bg-primary text-primary-foreground hover:bg-primary/90"
