@@ -17,8 +17,10 @@ export default function Home() {
     queryKey: ["/api/questions?limit=5&sort=top"],
   });
 
-  const { data: stats } = useQuery<{ totalQuestions: number; totalAnswers: number; totalUsers: number }>({
+  const { data: stats, isLoading: loadingStats } = useQuery<{ totalQuestions: number; totalAnswers: number; totalUsers: number }>({
     queryKey: ["/api/stats"],
+    staleTime: 0,
+    refetchOnMount: true,
   });
 
   return (
@@ -44,7 +46,11 @@ export default function Home() {
               <MessageCircle className="h-6 w-6 text-primary" />
             </div>
             <div>
-              <p className="text-2xl font-bold">{stats?.totalQuestions ?? "-"}</p>
+              {loadingStats ? (
+                <Skeleton className="h-8 w-12 mb-1" />
+              ) : (
+                <p className="text-2xl font-bold" data-testid="text-questions-count">{stats?.totalQuestions ?? 0}</p>
+              )}
               <p className="text-sm text-muted-foreground">Questions Asked</p>
             </div>
           </CardContent>
@@ -55,7 +61,11 @@ export default function Home() {
               <TrendingUp className="h-6 w-6 text-primary" />
             </div>
             <div>
-              <p className="text-2xl font-bold">{stats?.totalAnswers ?? "-"}</p>
+              {loadingStats ? (
+                <Skeleton className="h-8 w-12 mb-1" />
+              ) : (
+                <p className="text-2xl font-bold" data-testid="text-answers-count">{stats?.totalAnswers ?? 0}</p>
+              )}
               <p className="text-sm text-muted-foreground">Answers Provided</p>
             </div>
           </CardContent>
@@ -66,7 +76,11 @@ export default function Home() {
               <Users className="h-6 w-6 text-primary" />
             </div>
             <div>
-              <p className="text-2xl font-bold">{stats?.totalUsers ?? "-"}</p>
+              {loadingStats ? (
+                <Skeleton className="h-8 w-12 mb-1" />
+              ) : (
+                <p className="text-2xl font-bold" data-testid="text-users-count">{stats?.totalUsers ?? 0}</p>
+              )}
               <p className="text-sm text-muted-foreground">Community Members</p>
             </div>
           </CardContent>
