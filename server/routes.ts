@@ -560,10 +560,15 @@ export async function registerRoutes(
 
 async function seedDatabase(): Promise<{ message: string; categories?: number; faqs?: number }> {
   const existingCategories = await storage.getCategories();
-  if (existingCategories.length > 0) {
+  const existingFaqs = await storage.getFaqs();
+  
+  // If we already have all FAQs, skip seeding
+  if (existingCategories.length > 0 && existingFaqs.length >= 22) {
     return { message: "Data already seeded" };
   }
-
+  
+  const createdCategories: Record<string, string> = {};
+  
   const categoriesData = [
     { name: "Installation", slug: "installation", description: "Help with installing Linux distributions and packages", icon: "package", color: "#f97316" },
     { name: "Hardware", slug: "hardware", description: "Hardware compatibility and driver issues", icon: "cpu", color: "#ef4444" },
@@ -572,14 +577,29 @@ async function seedDatabase(): Promise<{ message: string; categories?: number; f
     { name: "Command Line", slug: "command-line", description: "Terminal, shell, and command line usage", icon: "terminal", color: "#22c55e" },
     { name: "System Configuration", slug: "system-config", description: "System settings and configuration", icon: "settings", color: "#f59e0b" },
   ];
-
-  const createdCategories: Record<string, string> = {};
-  for (const cat of categoriesData) {
-    const created = await storage.createCategory(cat);
-    createdCategories[cat.slug] = created.id;
+  
+  // Create categories if they don't exist, otherwise map existing ones
+  if (existingCategories.length > 0) {
+    for (const cat of existingCategories) {
+      createdCategories[cat.slug] = cat.id;
+    }
+  } else {
+    for (const cat of categoriesData) {
+      const created = await storage.createCategory(cat);
+      createdCategories[cat.slug] = created.id;
+    }
   }
+  
+  // Get existing FAQ questions to avoid duplicates
+  const existingQuestions = new Set(existingFaqs.map(f => f.question));
 
   const faqsData = [
+    {
+      question: "How do I update my system via terminal?",
+      answer: "On Debian/Ubuntu based systems, use `sudo apt update && sudo apt upgrade`. On Arch Linux, use `sudo pacman -Syu`. On Fedora, use `sudo dnf upgrade`.",
+      categoryId: createdCategories["command-line"],
+      order: 1,
+    },
     {
       question: "How do I update my system packages?",
       answer: "The command to update packages depends on your distribution. For Debian/Ubuntu based systems, use apt. For Fedora/RHEL, use dnf. For Arch, use pacman.",
@@ -587,6 +607,12 @@ async function seedDatabase(): Promise<{ message: string; categories?: number; f
       order: 1,
       codeSnippet: "# Debian/Ubuntu\nsudo apt update && sudo apt upgrade\n\n# Fedora/RHEL\nsudo dnf upgrade\n\n# Arch Linux\nsudo pacman -Syu",
       codeLanguage: "bash",
+    },
+    {
+      question: "How can I check my hardware specifications?",
+      answer: "You can use commands like `lscpu`, `lsblk`, `lspci`, or `lsusb`. For a comprehensive overview, install and run `neofetch` or `screenfetch`.",
+      categoryId: createdCategories["hardware"],
+      order: 2,
     },
     {
       question: "How do I check my Linux distribution version?",
@@ -605,6 +631,18 @@ async function seedDatabase(): Promise<{ message: string; categories?: number; f
       codeLanguage: "bash",
     },
     {
+      question: "What is the best way to install software?",
+      answer: "It is recommended to use your distribution's official package manager (apt, dnf, pacman). Alternatively, you can use Flatpak or Snap for cross-distribution compatibility.",
+      categoryId: createdCategories["software"],
+      order: 3,
+    },
+    {
+      question: "How do I fix \"Permission Denied\" errors?",
+      answer: "This usually means you need root privileges. Prepend your command with `sudo` or check the file permissions using `ls -l`. Use `chmod` or `chown` to modify them if necessary.",
+      categoryId: createdCategories["system-config"],
+      order: 4,
+    },
+    {
       question: "How do I configure a static IP address?",
       answer: "Static IP configuration varies by distribution. Modern systems often use NetworkManager or systemd-networkd. You can configure via command line or by editing configuration files.",
       categoryId: createdCategories["networking"],
@@ -621,11 +659,25 @@ async function seedDatabase(): Promise<{ message: string; categories?: number; f
       codeLanguage: "bash",
     },
     {
+      question: "How do I connect to a hidden Wi-Fi network?",
+      answer: "You can use `nmcli` or a graphical tool like NetworkManager. Via terminal: `nmcli dev wifi connect <SSID> password <password> hidden yes`.",
+      categoryId: createdCategories["networking"],
+      order: 5,
+    },
+    {
       question: "How do I install a .deb package?",
       answer: "On Debian/Ubuntu based systems, you can install .deb packages using dpkg or apt. Using apt is preferred as it handles dependencies automatically.",
       categoryId: createdCategories["installation"],
       order: 6,
       codeSnippet: "# Using apt (recommended - handles dependencies)\nsudo apt install ./package.deb\n\n# Using dpkg\nsudo dpkg -i package.deb\n\n# If dependencies are missing after dpkg\nsudo apt install -f",
+      codeLanguage: "bash",
+    },
+    {
+      question: "How do I find files by name?",
+      answer: "Use the `find` command to search for files. You can also use `locate` for faster searches if you have mlocate installed and the database updated.",
+      categoryId: createdCategories["command-line"],
+      order: 6,
+      codeSnippet: "find /path/to/search -name \"filename.txt\"\n# Or use locate (faster but needs database update)\nsudo updatedb && locate filename.txt",
       codeLanguage: "bash",
     },
     {
@@ -644,12 +696,81 @@ async function seedDatabase(): Promise<{ message: string; categories?: number; f
       codeSnippet: "# Numeric: read(4) + write(2) + execute(1)\nchmod 755 file.sh  # rwxr-xr-x\nchmod 644 file.txt # rw-r--r--\n\n# Symbolic\nchmod +x script.sh    # Add execute\nchmod u+w,g-w file    # User +write, group -write\n\n# Change ownership\nchown user:group file",
       codeLanguage: "bash",
     },
+    {
+      question: "How do I kill a frozen application?",
+      answer: "You can use `kill` or `killall` commands. First find the process ID with `ps` or `top`, then terminate it.",
+      categoryId: createdCategories["software"],
+      order: 8,
+      codeSnippet: "ps aux | grep application_name\nkill -9 <PID>\n# Or kill by name\nkillall -9 application_name\n# Or use xkill for GUI apps\nxkill",
+      codeLanguage: "bash",
+    },
+    {
+      question: "How do I check my IP address?",
+      answer: "Use `ip addr` or `ip a` for local addresses. For your public IP, you can use curl with an external service.",
+      categoryId: createdCategories["networking"],
+      order: 9,
+      codeSnippet: "ip addr show       # Show all network interfaces\nip a               # Short version\nhostname -I        # Quick local IP\ncurl ifconfig.me   # Get public IP",
+      codeLanguage: "bash",
+    },
+    {
+      question: "How do I add a user to sudoers?",
+      answer: "You can either add a user to the sudo/wheel group, or edit the sudoers file with visudo.",
+      categoryId: createdCategories["system-config"],
+      order: 10,
+      codeSnippet: "# Add user to sudo group (Debian/Ubuntu)\nsudo usermod -aG sudo username\n\n# Add user to wheel group (Fedora/Arch)\nsudo usermod -aG wheel username\n\n# Or edit sudoers directly\nsudo visudo",
+      codeLanguage: "bash",
+    },
+    {
+      question: "How do I check system logs?",
+      answer: "Modern Linux systems use journalctl to view systemd logs. You can also check traditional log files in /var/log.",
+      categoryId: createdCategories["system-config"],
+      order: 11,
+      codeSnippet: "journalctl -xe            # View recent logs with explanations\njournalctl -u nginx       # Logs for specific service\njournalctl --since \"1 hour ago\"\ntail -f /var/log/syslog   # Traditional log file",
+      codeLanguage: "bash",
+    },
+    {
+      question: "How do I install graphics drivers?",
+      answer: "For NVIDIA, use your distro's proprietary driver package. For AMD/Intel, the open-source drivers are usually included by default.",
+      categoryId: createdCategories["hardware"],
+      order: 12,
+      codeSnippet: "# Ubuntu/Debian - NVIDIA\nsudo apt install nvidia-driver-535\n\n# Fedora - NVIDIA (via RPM Fusion)\nsudo dnf install akmod-nvidia\n\n# Check current driver\nlspci -k | grep -A 2 VGA",
+      codeLanguage: "bash",
+    },
+    {
+      question: "How do I create a bootable USB drive?",
+      answer: "You can use dd command, or GUI tools like Etcher or Ventoy for a more user-friendly experience.",
+      categoryId: createdCategories["installation"],
+      order: 13,
+      codeSnippet: "# Using dd (be very careful with device path!)\nsudo dd if=linux.iso of=/dev/sdX bs=4M status=progress\n\n# Using Ventoy (multi-boot USB)\n# Download from ventoy.net and run:\nsudo ./Ventoy2Disk.sh -i /dev/sdX",
+      codeLanguage: "bash",
+    },
+    {
+      question: "How do I set up SSH keys for passwordless login?",
+      answer: "Generate a key pair with ssh-keygen and copy the public key to the remote server.",
+      categoryId: createdCategories["networking"],
+      order: 14,
+      codeSnippet: "# Generate SSH key pair\nssh-keygen -t ed25519 -C \"your_email@example.com\"\n\n# Copy public key to server\nssh-copy-id user@remote-server\n\n# Now login without password\nssh user@remote-server",
+      codeLanguage: "bash",
+    },
+    {
+      question: "How do I schedule tasks with cron?",
+      answer: "Use crontab to schedule recurring tasks. The syntax follows: minute hour day month weekday command.",
+      categoryId: createdCategories["command-line"],
+      order: 15,
+      codeSnippet: "# Edit your crontab\ncrontab -e\n\n# Example entries:\n# Run script every day at 3am\n0 3 * * * /path/to/script.sh\n\n# Run every 15 minutes\n*/15 * * * * /path/to/command\n\n# List current cron jobs\ncrontab -l",
+      codeLanguage: "bash",
+    },
   ];
 
+  // Only add FAQs that don't already exist
+  let addedCount = 0;
   for (const faq of faqsData) {
-    await storage.createFaq(faq);
+    if (!existingQuestions.has(faq.question)) {
+      await storage.createFaq(faq);
+      addedCount++;
+    }
   }
 
-  console.log("Database seeded with categories and FAQs");
-  return { message: "Data seeded successfully", categories: Object.keys(createdCategories).length, faqs: faqsData.length };
+  console.log(`Database seeded: ${addedCount} new FAQs added`);
+  return { message: "Data seeded successfully", categories: Object.keys(createdCategories).length, faqs: addedCount };
 }
